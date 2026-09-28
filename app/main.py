@@ -41,7 +41,7 @@ _DESCRIPTION = """
 # 🏠 Levitica Nestora API — Multi-Tenant Hostel Management & Booking Platform
 
 > **India's hostel management platform** — bed-level inventory, day-wise & monthly bookings,
-> multi-role operations, Razorpay payments, and Gmail OTP emails.
+> multi-role operations, Razorpay payments, and Brevo/SMTP transactional emails.
 > Built for **Levitica Technologies — DCM Levitica Nestora**.
 
 ---
@@ -177,20 +177,18 @@ Any status → CANCELLED (bed released if assigned)
 - OTP verification on registration
 - Password reset OTP
 - Booking confirmation on payment capture
-- All sent via Gmail SMTP (configured in `.env`)
-- Dev mode: OTPs printed to console if SMTP not configured
+- Sent via **Brevo API** (production) / SMTP / 2Factor SMS for OTP
+- Dev mode fallback: OTPs logged to console if email service unavailable
 
 ---
 
-## 📊 Seed Data (63 Levitica Employees)
+## 📊 Database Initialization
 
-Students are seeded from `Employee_Register.xlsx`:
-- 63 employees (LEV001–LEV128) as students
-- Student numbers: `LEV044-22` format (code + row index)
-- Emails: `hemant.pawade.lev044@levitica.in`
-- Team leads mapped to supervisors
+- Automated migrations run via Alembic (`alembic upgrade head`)
+- Core administrative accounts seeded: Super Admin, 2 Hostel Admins, 1 Supervisor
+- Hostels, rooms, beds, and students are created dynamically by admins via UI
 
-*Base URL: `http://localhost:8000/api/v1` · Docs: `/docs` · ReDoc: `/redoc`*
+*Production API Base: `https://hostel-final-api-sicu.onrender.com/api/v1` · Frontend: `https://hma-theta.vercel.app` · Docs: `/docs` · ReDoc: `/redoc`*
 """
 
 
