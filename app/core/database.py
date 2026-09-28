@@ -16,6 +16,7 @@ connect_args = {
     },
     "timeout": 30,
     "command_timeout": 30,
+    "statement_cache_size": 0,  # Required for Supabase Transaction Pooler (pgbouncer)
 }
 
 if "localhost" not in settings.database_url and "127.0.0.1" not in settings.database_url:
