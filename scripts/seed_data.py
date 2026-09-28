@@ -866,7 +866,11 @@ async def _run():
     import sys
     clean = "--clean" in sys.argv or "--reset" in sys.argv
 
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(
+        settings.database_url,
+        echo=False,
+        connect_args={"statement_cache_size": 0},  # Required for Supabase Transaction Pooler (pgbouncer)
+    )
 
     if clean:
         print("\n🗑️  Cleaning existing data (--clean flag)...\n")
