@@ -1,7 +1,10 @@
-# Render Blueprint Configuration (CI/CD Automated Infrastructure)
-# Documentation: https://render.com/docs/blueprint-spec
+# ============================================================
+# Render Blueprint — Hostel Final (Levitica Nestora / StayEase)
+# Deploy: https://dashboard.render.com → New → Blueprint
+# ============================================================
 
 services:
+  # ── 1. FastAPI Web API ─────────────────────────────────────
   - type: web
     name: hostel-final-api
     env: python
@@ -10,47 +13,121 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: bash startup.sh
     autoDeploy: true
+    healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: 3.12.0
+        value: "3.12.0"
+
+      # ── Database (Supabase or Render PostgreSQL) ───────────
       - key: DATABASE_URL
-        fromDatabase:
-          name: hostel-db
-          property: connectionString
+        sync: false   # Set manually: postgresql+asyncpg://...
+
+      # ── Redis (Upstash — free) ─────────────────────────────
+      - key: REDIS_URL
+        sync: false   # Set manually: rediss://:password@host:port
+
+      # ── Security ───────────────────────────────────────────
       - key: SECRET_KEY
         generateValue: true
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: JWT_ALGORITHM
+        value: "HS256"
+      - key: ALGORITHM
+        value: "HS256"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "30"
+
+      # ── App Config ─────────────────────────────────────────
       - key: DEBUG
         value: "False"
       - key: APP_ENV
         value: "production"
       - key: SEED_DATA
         value: "false"
+
+      # ── CORS / Frontend URL ────────────────────────────────
+      - key: FRONTEND_URL
+        value: "https://your-hostel-frontend.vercel.app"
+      - key: ALLOWED_ORIGINS
+        value: "https://your-hostel-frontend.vercel.app"
+
+      # ── Email (Brevo) ──────────────────────────────────────
       - key: EMAIL_PROVIDER
         value: "brevo"
       - key: BREVO_SENDER_EMAIL
         value: "hemantpawade04@gmail.com"
       - key: BREVO_API_KEY
         sync: false
+      - key: EMAIL_FROM
+        value: "noreply@stayease.com"
+      - key: EMAIL_SEND_TIMEOUT
+        value: "60"
+
+      # ── Cloudinary (Images/Files) ──────────────────────────
+      - key: CLOUDINARY_CLOUD_NAME
+        value: "afjbmiqp"
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: CLOUDINARY_CLOUD_NAME
-        sync: false
-      - key: ENCRYPTION_KEY
-        sync: false
+
+      # ── Razorpay ───────────────────────────────────────────
       - key: RAZORPAY_KEY_ID
-        value: "rzp_live_T1totnHl5LEoTG"
+        sync: false
       - key: RAZORPAY_KEY_SECRET
-        value: "cWjz2stqI2MsZ3LPQydlZh6F"
+        sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
-        value: "cWjz2stqI2MsZ3LPQydlZh6F"
+        sync: false
+
+      # ── OTP (2Factor.in) ───────────────────────────────────
       - key: TWO_FACTOR_API_KEY
         sync: false
 
-databases:
-  - name: hostel-db
-    databaseName: hostel_final_db
-    user: hostel_admin
+  # ── 2. Celery Background Worker ────────────────────────────
+  - type: worker
+    name: hostel-final-celery-worker
+    env: python
     region: oregon
-    plan: free
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: JWT_ALGORITHM
+        value: "HS256"
+      - key: APP_ENV
+        value: "production"
+      - key: DEBUG
+        value: "False"
+      - key: EMAIL_PROVIDER
+        value: "brevo"
+      - key: BREVO_SENDER_EMAIL
+        value: "hemantpawade04@gmail.com"
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: "noreply@stayease.com"
+      - key: CLOUDINARY_CLOUD_NAME
+        value: "afjbmiqp"
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+
