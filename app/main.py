@@ -930,12 +930,16 @@ async def root():
 
           {/* SIDEBAR NAVIGATION */}
           <aside class="w-64 glass border-r border-white/5 flex flex-col fixed inset-y-0 left-0 z-30">
-            <div class="h-20 flex items-center gap-3.5 px-5 border-b border-white/5 bg-gradient-to-r from-orange-500/10 via-transparent to-transparent">
-              <div class="relative flex items-center justify-center w-12 h-12 rounded-xl bg-white p-1.5 shadow-lg shadow-orange-500/20 ring-1 ring-white/40 transition-transform duration-300 hover:scale-105 shrink-0">
+            <div class="h-20 flex items-center gap-3 px-5 border-b border-white/5 bg-gradient-to-r from-orange-500/10 via-transparent to-transparent">
+              <div class="flex items-center justify-center w-11 h-11 shrink-0">
                 <img 
-                  src={LEVITICA_LOGO_B64}
-                  alt="Levitica Technologies" 
-                  class="w-full h-full object-contain"
+                  src="https://leviticatechnologies.com/img/leviticalogo-removebg.png"
+                  alt="Levitica Logo" 
+                  class="w-full h-full object-contain filter brightness-0 invert drop-shadow-[0_2px_8px_rgba(245,158,11,0.5)] transition-transform duration-300 hover:scale-110"
+                  onError={(e) => {
+                    e.target.src = LEVITICA_LOGO_B64;
+                    e.target.classList.remove('brightness-0', 'invert');
+                  }}
                 />
               </div>
               <div class="flex flex-col min-w-0">
