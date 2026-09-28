@@ -928,11 +928,32 @@ async def root():
 
           {/* SIDEBAR NAVIGATION */}
           <aside class="w-64 glass border-r border-white/5 flex flex-col fixed inset-y-0 left-0 z-30">
-            <div class="h-20 flex items-center gap-3 px-5 border-b border-white/5">
-              <img src="https://leviticatechnologies.com/img/leviticalogo-removebg.png" alt="Levitica Logo" class="h-12 w-auto max-w-[52px] object-contain filter drop-shadow-[0_2px_8px_rgba(245,158,11,0.3)] transition-transform duration-300 hover:scale-105" />
-              <div>
-                <h1 class="font-extrabold text-white text-base leading-tight tracking-tight">Levitica Nestora</h1>
-                <span class="text-[10px] uppercase font-bold tracking-widest text-slate-400">DevPortal V1.0</span>
+            <div class="h-20 flex items-center gap-3.5 px-5 border-b border-white/5 bg-gradient-to-r from-orange-500/10 via-transparent to-transparent">
+              <div class="relative flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 p-0.5 shadow-lg shadow-orange-500/30 ring-1 ring-white/20 transition-transform duration-300 hover:scale-105">
+                <div class="w-full h-full rounded-[10px] bg-[#0c0c14] flex items-center justify-center overflow-hidden">
+                  <img 
+                    src="https://leviticatechnologies.com/img/leviticalogo-removebg.png" 
+                    alt="Levitica" 
+                    class="w-full h-full object-contain p-1"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'flex';
+                    }}
+                  />
+                  <div class="hidden w-full h-full items-center justify-center font-black text-transparent bg-clip-text bg-gradient-to-tr from-orange-400 to-amber-200 text-lg">
+                    LN
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-col">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-extrabold text-white text-base leading-none tracking-tight">Levitica</span>
+                  <span class="font-bold text-orange-400 text-base leading-none tracking-tight">Nestora</span>
+                </div>
+                <span class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1 flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  DevPortal v1.0
+                </span>
               </div>
             </div>
 
