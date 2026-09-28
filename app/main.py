@@ -643,6 +643,21 @@ async def root():
       0% { background-position: -200% 0; }
       100% { background-position: 200% 0; }
     }
+
+    /* Logo Premium Animation */
+    @keyframes logo-breathe {
+      0%, 100% {
+        transform: translateY(0px) scale(1);
+        filter: drop-shadow(0 0 12px rgba(255, 107, 53, 0.45)) drop-shadow(0 0 24px rgba(67, 97, 238, 0.25));
+      }
+      50% {
+        transform: translateY(-2px) scale(1.04);
+        filter: drop-shadow(0 0 20px rgba(255, 107, 53, 0.7)) drop-shadow(0 0 35px rgba(67, 97, 238, 0.45));
+      }
+    }
+    .animate-logo-glow {
+      animation: logo-breathe 4s ease-in-out infinite;
+    }
   </style>
 </head>
 <body class="text-slate-200 antialiased font-sans min-height-screen">
@@ -930,12 +945,13 @@ async def root():
 
           {/* SIDEBAR NAVIGATION */}
           <aside class="w-64 glass border-r border-white/5 flex flex-col fixed inset-y-0 left-0 z-30">
-            <div class="h-20 flex items-center gap-3 px-5 border-b border-white/5 bg-gradient-to-r from-orange-500/10 via-transparent to-transparent">
-              <div class="flex items-center justify-center w-11 h-11 shrink-0">
+            <div class="h-24 flex items-center gap-3.5 px-5 border-b border-white/5 bg-gradient-to-r from-orange-500/15 via-orange-500/5 to-transparent">
+              {/* Animated illuminated brand container */}
+              <div class="relative flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-white/10 to-white/5 p-1.5 ring-1 ring-white/15 backdrop-blur-md shadow-xl animate-logo-glow transition-transform duration-300 hover:scale-105 shrink-0 cursor-pointer">
                 <img 
                   src="https://leviticatechnologies.com/img/leviticalogo-removebg.png"
                   alt="Levitica Logo" 
-                  class="w-full h-full object-contain filter brightness-0 invert drop-shadow-[0_2px_8px_rgba(245,158,11,0.5)] transition-transform duration-300 hover:scale-110"
+                  class="w-full h-full object-contain filter brightness-0 invert drop-shadow-[0_2px_12px_rgba(255,107,53,0.8)]"
                   onError={(e) => {
                     e.target.src = LEVITICA_LOGO_B64;
                     e.target.classList.remove('brightness-0', 'invert');
@@ -944,11 +960,11 @@ async def root():
               </div>
               <div class="flex flex-col min-w-0">
                 <div class="flex items-center gap-1.5">
-                  <span class="font-extrabold text-white text-base leading-none tracking-tight">Levitica</span>
-                  <span class="font-bold text-orange-400 text-base leading-none tracking-tight">Nestora</span>
+                  <span class="font-extrabold text-white text-lg leading-none tracking-tight">Levitica</span>
+                  <span class="font-bold text-orange-400 text-lg leading-none tracking-tight">Nestora</span>
                 </div>
-                <span class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1 flex items-center gap-1">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1.5 flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]"></span>
                   DevPortal v1.0
                 </span>
               </div>
