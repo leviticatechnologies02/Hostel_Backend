@@ -1080,6 +1080,7 @@ async def list_all_payments(
     from app.models.payment import Payment
     from app.models.booking import Booking
     from app.models.user import User
+    from app.models.hostel import Hostel
 
     query = select(Payment)
     count_query = select(func.count()).select_from(Payment)
@@ -1100,6 +1101,16 @@ async def list_all_payments(
     query = query.order_by(Payment.created_at.desc()).offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(query)
     payments = result.scalars().all()
+
+    # Batch-load hostel names for all payments
+    hostel_ids = list({str(p.hostel_id) for p in payments if p.hostel_id})
+    hostel_name_map = {}
+    if hostel_ids:
+        hostel_result = await db.execute(
+            select(Hostel.id, Hostel.name).where(Hostel.id.in_(hostel_ids))
+        )
+        for hostel_id_val, hostel_name_val in hostel_result.all():
+            hostel_name_map[str(hostel_id_val)] = hostel_name_val
 
     items = []
     for p in payments:
@@ -1141,6 +1152,7 @@ async def list_all_payments(
         items.append({
             "payment_id": str(p.id),
             "hostel_id": str(p.hostel_id),
+            "hostel_name": hostel_name_map.get(str(p.hostel_id)),
             "booking_id": str(p.booking_id) if p.booking_id else None,
             "student_id": str(p.student_id) if p.student_id else None,
             "payer_name": payer_name,
