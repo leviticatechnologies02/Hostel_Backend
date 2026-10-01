@@ -19,6 +19,7 @@ celery_app = Celery(
         'app.tasks.payment_tasks',
         'app.tasks.waitlist_tasks',
         'app.tasks.complaint_sla_tasks',
+        'app.tasks.booking_tasks',
     ]
 )
 
@@ -37,6 +38,10 @@ celery_app.conf.update(
         "scan-complaint-sla": {
             "task": "app.tasks.complaint_sla.scan_breaches",
             "schedule": crontab(minute="*/30"),
+        },
+        "auto-checkout-expired-bookings": {
+            "task": "app.tasks.booking_tasks.auto_checkout_expired_bookings_celery",
+            "schedule": crontab(minute="*/5"),
         },
     },
 )

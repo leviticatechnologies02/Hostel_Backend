@@ -300,6 +300,34 @@ register_middleware(app)
 app.include_router(api_router, prefix=settings.api_prefix)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Background task: Auto-checkout expired daily/hourly bookings every 5 minutes
+# ─────────────────────────────────────────────────────────────────────────────
+import asyncio
+import logging
+
+_auto_checkout_logger = logging.getLogger("auto_checkout")
+
+async def _auto_checkout_loop():
+    """Background loop that auto-checks out expired daily/hourly bookings."""
+    from app.tasks.booking_tasks import auto_checkout_expired_bookings
+    _auto_checkout_logger.info("Auto-checkout background loop started (runs every 5 minutes).")
+    while True:
+        try:
+            count = await auto_checkout_expired_bookings()
+            if count:
+                _auto_checkout_logger.info(f"Auto-checkout cycle: {count} booking(s) expired and released.")
+        except Exception:
+            _auto_checkout_logger.exception("Error in auto-checkout loop iteration")
+        await asyncio.sleep(300)  # 5 minutes
+
+
+@app.on_event("startup")
+async def start_auto_checkout_task():
+    """Start the auto-checkout background loop on server startup."""
+    asyncio.create_task(_auto_checkout_loop())
+
+
 @app.get("/api/v1/system/stats", include_in_schema=False)
 async def get_system_stats(db: DBSession, force: bool = False):
     import time
