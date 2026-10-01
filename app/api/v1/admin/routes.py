@@ -701,25 +701,24 @@ async def sync_student_record(booking_id: str, db: DBSession, current_user: Admi
     booking = result.scalar_one_or_none()
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found.")
-    if booking.status != BookingStatus.CHECKED_IN:
-        raise HTTPException(status_code=400, detail=f"Booking is not checked_in (status: {booking.status})")
-    # Tenant = monthly OR daily > 10 days
-    is_tenant = (
-        booking.booking_mode == BookingMode.MONTHLY
-        or (
-            booking.booking_mode == BookingMode.DAILY
-            and booking.check_out_date
-            and booking.check_in_date
-            and (booking.check_out_date - booking.check_in_date).days > 10
+    if booking.status not in (BookingStatus.APPROVED, BookingStatus.CHECKED_IN):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Booking must be approved or checked_in (status: {booking.status})",
         )
-    )
-    if not is_tenant:
-        return {"status": "skipped", "reason": f"{booking.booking_mode.value} bookings (≤10 days) are treated as visitors, not tenants."}
     svc = StudentService(db)
+    if not svc.is_tenant_booking(booking):
+        return {
+            "status": "skipped",
+            "reason": f"{booking.booking_mode.value} bookings (≤10 days) are treated as visitors, not tenants.",
+        }
     existing = await svc.student_repository.get_student_by_booking(str(booking_id))
     if existing:
         return {"status": "already_exists", "student_id": str(existing.id)}
-    student = await svc.check_in_from_booking(booking_id=booking_id, actor_id=current_user.id)
+    student = await svc.ensure_tenant_record_from_booking(
+        booking_id=booking_id,
+        actor_id=current_user.id,
+    )
     return {"status": "created", "student_id": str(student.id)}
 
 
@@ -2427,4 +2426,3 @@ async def cleanup_tenant_data(
         "deleted": deleted,
         "kept": ["hostels", "rooms", "beds (structure)", "admin users", "admin_hostel_mappings"],
     }
-

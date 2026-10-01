@@ -344,6 +344,20 @@ class BookingService:
             changed_by=approved_by,
             note="Booking approved and bed reserved.",
         )
+
+        # Long stays are tenants as soon as their booking is approved.  Keep this
+        # in the same transaction as the reservation so an approved monthly stay
+        # can never be left as a visitor because profile creation failed.
+        from app.services.student_service import StudentService
+
+        tenant_service = StudentService(self.session)
+        if tenant_service.is_tenant_booking(booking):
+            await tenant_service.ensure_tenant_record_from_booking(
+                booking_id=str(booking.id),
+                actor_id=approved_by,
+                commit=False,
+            )
+
         await self.session.commit()
         await self.session.refresh(booking)
         return booking

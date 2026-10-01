@@ -42,6 +42,15 @@ class StudentRepository:
         await self.session.flush()
         return bed_stay
 
+    async def link_bed_stay_to_student(self, booking_id: str, student_id: str) -> BedStay | None:
+        """Attach a reserved stay to a tenant without marking it occupied yet."""
+        result = await self.session.execute(select(BedStay).where(BedStay.booking_id == booking_id))
+        bed_stay = result.scalar_one_or_none()
+        if bed_stay is not None:
+            bed_stay.student_id = student_id
+        await self.session.flush()
+        return bed_stay
+
     async def promote_user_to_student(self, user_id: str) -> User | None:
         result = await self.session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()

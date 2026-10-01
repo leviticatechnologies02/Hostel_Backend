@@ -239,6 +239,9 @@ Admin logs in at `/admin` → **Bookings** → finds the pending booking → cli
 
 Booking status moves: `pending_approval` → `approved`
 
+For monthly stays (and daily stays longer than 10 nights), approval also creates
+the tenant/student record and promotes the account from `visitor` to `student`.
+
 ---
 
 ### Step 8 — Admin Checks In Student
@@ -246,10 +249,9 @@ Booking status moves: `pending_approval` → `approved`
 Admin → **Bookings** → approved booking → clicks **Check In**.
 
 This:
-- Creates a `Student` record linked to the user
-- Assigns the bed (`BedStay` becomes `ACTIVE`)
+- Activates the assigned bed (`BedStay` becomes `ACTIVE`)
 - Booking status → `checked_in`
-- User role remains `visitor` in auth — student data is accessed via `/student/*` endpoints using the same JWT
+- The tenant record created at approval remains linked to the active bed
 
 ---
 
