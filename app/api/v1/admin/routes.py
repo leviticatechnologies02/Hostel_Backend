@@ -295,13 +295,16 @@ async def get_hostel_bed_tracking(hostel_id: str, db: DBSession, current_user: A
 
     Returns:
     - Overall metrics: total_beds, occupied, vacant, maintenance, reserved
-    - List of rooms with their child beds, status, and active student details.
+    - List of rooms with their child beds, status, and active occupant details.
+    - For monthly tenants: shows student info.
+    - For hourly/daily visitors: shows visitor info from booking.
     """
     from sqlalchemy import select
     from app.models.hostel import Hostel
     from app.models.room import Room, Bed, BedStatus
     from app.models.student import Student, StudentStatus
     from app.models.user import User
+    from app.models.booking import BedStay, BedStayStatus, Booking, BookingMode, BookingStatus
 
     _check_hostel(current_user, hostel_id)
 
@@ -327,7 +330,7 @@ async def get_hostel_bed_tracking(hostel_id: str, db: DBSession, current_user: A
     )
     beds = beds_res.scalars().all()
 
-    # 4. Get Active Students with User info
+    # 4. Get Active Students (tenants - monthly bookings) with User info
     students_res = await db.execute(
         select(Student, User)
         .join(User, User.id == Student.user_id)
@@ -336,7 +339,7 @@ async def get_hostel_bed_tracking(hostel_id: str, db: DBSession, current_user: A
             Student.status.in_([StudentStatus.ACTIVE, StudentStatus.ON_LEAVE]),
         )
     )
-    # Map bed_id -> student info
+    # Map bed_id -> student/tenant info
     bed_student_map = {}
     for student, user in students_res.all():
         if student.bed_id:
@@ -346,6 +349,32 @@ async def get_hostel_bed_tracking(hostel_id: str, db: DBSession, current_user: A
                 "full_name": user.full_name,
                 "student_number": student.student_number,
                 "phone": user.phone,
+                "occupant_type": "tenant",
+            }
+
+    # 5. Get Active BedStays for hourly/daily visitors (no Student record)
+    # Visitors = hourly OR daily ≤ 10 days (daily > 10 days are tenants with student records)
+    visitor_stays_res = await db.execute(
+        select(BedStay, Booking)
+        .join(Booking, Booking.id == BedStay.booking_id)
+        .where(
+            BedStay.hostel_id == hostel_id,
+            BedStay.status == BedStayStatus.ACTIVE,
+            Booking.status == BookingStatus.CHECKED_IN,
+            Booking.booking_mode.in_([BookingMode.HOURLY, BookingMode.DAILY]),
+        )
+    )
+    for bed_stay, booking in visitor_stays_res.all():
+        bed_id_str = str(bed_stay.bed_id)
+        # Only add if not already covered by a student record
+        if bed_id_str not in bed_student_map:
+            bed_student_map[bed_id_str] = {
+                "booking_id": str(booking.id),
+                "full_name": booking.full_name,
+                "booking_mode": booking.booking_mode.value,
+                "check_out_date": booking.check_out_date.isoformat() if booking.check_out_date else None,
+                "phone": None,
+                "occupant_type": "visitor",
             }
 
     # Map room_id -> list of beds
@@ -635,12 +664,27 @@ async def check_in_student(booking_id: str, db: DBSession, current_user: AdminUs
     booking_hostel_id = await _resolve_booking_hostel_id(db, booking_id)
     _check_hostel(current_user, booking_hostel_id)
     from app.services.student_service import StudentService
+    from app.models.booking import BookingMode
     booking = await BookingService(db).check_in_student(booking_id=booking_id, checked_in_by=current_user.id)
     try:
         await db.refresh(booking)
-        existing = await StudentService(db).student_repository.get_student_by_booking(str(booking_id))
-        if existing is None:
-            await StudentService(db).check_in_from_booking(booking_id=booking_id, actor_id=current_user.id)
+        # Determine if this booking qualifies as a tenant:
+        # - Monthly bookings → always tenant
+        # - Daily bookings > 10 days → tenant
+        # - Hourly / Daily ≤ 10 days → visitor (no student record)
+        is_tenant = (
+            booking.booking_mode == BookingMode.MONTHLY
+            or (
+                booking.booking_mode == BookingMode.DAILY
+                and booking.check_out_date
+                and booking.check_in_date
+                and (booking.check_out_date - booking.check_in_date).days > 10
+            )
+        )
+        if is_tenant:
+            existing = await StudentService(db).student_repository.get_student_by_booking(str(booking_id))
+            if existing is None:
+                await StudentService(db).check_in_from_booking(booking_id=booking_id, actor_id=current_user.id)
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Student record creation failed for booking {booking_id}: {e}")
@@ -652,13 +696,25 @@ async def sync_student_record(booking_id: str, db: DBSession, current_user: Admi
     booking_hostel_id = await _resolve_booking_hostel_id(db, booking_id)
     _check_hostel(current_user, booking_hostel_id)
     from app.services.student_service import StudentService
-    from app.models.booking import BookingStatus
+    from app.models.booking import BookingStatus, BookingMode
     result = await db.execute(select(Booking).where(Booking.id == booking_id))
     booking = result.scalar_one_or_none()
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found.")
     if booking.status != BookingStatus.CHECKED_IN:
         raise HTTPException(status_code=400, detail=f"Booking is not checked_in (status: {booking.status})")
+    # Tenant = monthly OR daily > 10 days
+    is_tenant = (
+        booking.booking_mode == BookingMode.MONTHLY
+        or (
+            booking.booking_mode == BookingMode.DAILY
+            and booking.check_out_date
+            and booking.check_in_date
+            and (booking.check_out_date - booking.check_in_date).days > 10
+        )
+    )
+    if not is_tenant:
+        return {"status": "skipped", "reason": f"{booking.booking_mode.value} bookings (≤10 days) are treated as visitors, not tenants."}
     svc = StudentService(db)
     existing = await svc.student_repository.get_student_by_booking(str(booking_id))
     if existing:
