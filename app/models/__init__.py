@@ -21,6 +21,8 @@ from app.models.booking import (  # noqa: F401
     BookingMode,
     BookingStatus,
     BookingStatusHistory,
+    CheckoutRequest,
+    CheckoutRequestStatus,
     Inquiry,
     WaitlistEntry,
     WaitlistStatus,
@@ -55,7 +57,8 @@ __all__ = [
     "Room", "RoomType", "Bed", "BedStatus",
     # booking
     "Booking", "BookingMode", "BookingStatus",
-    "BookingStatusHistory", "BedStay", "BedStayStatus", "Inquiry",
+    "BookingStatusHistory", "CheckoutRequest", "CheckoutRequestStatus",
+    "BedStay", "BedStayStatus", "Inquiry",
     "WaitlistEntry", "WaitlistStatus",
     # student
     "Student", "StudentStatus",

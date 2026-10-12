@@ -25,6 +25,8 @@ class HostelListItem(TimestampedResponse):
     starting_daily_price: float = 0.0
     starting_monthly_price: float = 0.0
     available_beds: int = 0
+    is_available: bool = False
+    availability_status: str = "no_room_available"
     images: list[dict] = []          # ← primary + gallery images for card display
 
 

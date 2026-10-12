@@ -144,15 +144,24 @@ class AdminService:
         # ✅ FIX
         return self.map_hostel_to_response(hostel)
 
-    async def list_rooms(self, hostel_id: str):
+    async def list_rooms(
+        self, hostel_id: str, start_date: date | None = None, end_date: date | None = None
+    ):
         rooms = await self.repository.list_rooms(hostel_id)
 
+        start_date = start_date or date.today()
+        end_date = end_date or (start_date + __import__("datetime").timedelta(days=1))
+        room_repository = RoomRepository(self.session)
+
         for room in rooms:
-            room.available_beds = await RoomRepository.get_available_bed_count(
-                self=self,
+            room.available_beds = await room_repository.get_available_bed_count(
                 room_id=room.id,
-                start_date=date.today(),
-                end_date=date.today()
+                start_date=start_date,
+                end_date=end_date,
+            )
+            room.is_available = room.available_beds > 0
+            room.availability_status = (
+                "available" if room.is_available else "no_room_available"
             )
 
         return rooms
@@ -166,12 +175,21 @@ class AdminService:
         """
         from sqlalchemy.exc import IntegrityError
 
+        try:
+            room_type = RoomType(payload.room_type.strip().lower().replace("_", "-"))
+        except (AttributeError, ValueError):
+            allowed_types = ", ".join(room_type.value for room_type in RoomType)
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid room type. Choose one of: {allowed_types}.",
+            )
+
         # Create the room
         room = Room(
             hostel_id=hostel_id,
             room_number=payload.room_number,
             floor=payload.floor,
-            room_type=payload.room_type.upper().replace("-", "_") if payload.room_type else None,
+            room_type=room_type,
             total_beds=payload.total_beds,
             hourly_rent=payload.hourly_rent,
             daily_rent=payload.daily_rent,
@@ -216,7 +234,16 @@ class AdminService:
             raise HTTPException(status_code=404, detail="Room not found.")
         update_data = payload.dict(exclude_unset=True)
         if "room_type" in update_data and update_data["room_type"]:
-            update_data["room_type"] = update_data["room_type"].upper().replace("-", "_")
+            try:
+                update_data["room_type"] = RoomType(
+                    update_data["room_type"].strip().lower().replace("_", "-")
+                )
+            except (AttributeError, ValueError):
+                allowed_types = ", ".join(room_type.value for room_type in RoomType)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid room type. Choose one of: {allowed_types}.",
+                )
         
         for field, value in update_data.items():
             setattr(room, field, value)
@@ -233,6 +260,15 @@ class AdminService:
         room = await self.repository.get_room_by_id(room_id)
         if room is None:
             raise HTTPException(status_code=404, detail="Room not found.")
+
+        try:
+            bed_status = BedStatus(payload.status.strip().lower())
+        except (AttributeError, ValueError):
+            allowed_statuses = ", ".join(status.value for status in BedStatus)
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid bed status. Choose one of: {allowed_statuses}.",
+            )
         
         # Check if bed number already exists in this room
         existing_beds = await self.repository.list_beds(room_id)
@@ -254,7 +290,7 @@ class AdminService:
             hostel_id=room.hostel_id,
             room_id=room_id,
             bed_number=payload.bed_number,
-            status=payload.status or BedStatus.AVAILABLE,
+            status=bed_status,
         )
         self.session.add(bed)
         await self.session.commit()

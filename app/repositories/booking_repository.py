@@ -12,7 +12,7 @@ from app.models.booking import (
     WaitlistEntry,
     WaitlistStatus,
 )
-from app.models.room import Bed
+from app.models.room import Bed, BedStatus
 
 
 class BookingRepository:
@@ -100,20 +100,17 @@ class BookingRepository:
         *,
         hostel_id: str,
         room_id: str | None = None,
-        start_date: date,
-        end_date: date,
+        start_date: date | datetime,
+        end_date: date | datetime,
     ) -> list[Bed]:
         """
         Get all available beds for the given date range using a single NOT EXISTS query.
         No N+1 — one query total.
         """
         from sqlalchemy import not_, exists, case, func
-        from datetime import date as dt_date
-
-        today = dt_date.today()
 
         effective_end_date = case(
-            (BedStay.status == BedStayStatus.ACTIVE, func.greatest(BedStay.end_date, today)),
+            (BedStay.status == BedStayStatus.ACTIVE, func.greatest(BedStay.end_date, func.now())),
             else_=BedStay.end_date
         )
 
@@ -130,6 +127,7 @@ class BookingRepository:
 
         query = select(Bed).where(
             Bed.hostel_id == hostel_id,
+            Bed.status != BedStatus.MAINTENANCE,
             not_(exists(occupied_subq)),
         )
         if room_id:

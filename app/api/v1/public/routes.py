@@ -147,6 +147,7 @@ async def list_hostels(
     max_price: float | None = None,
     booking_mode: str | None = None,
     available_from: DateType | None = None,
+    available_to: DateType | None = None,
     is_featured: bool | None = None,
     sort: str | None = None,
     page: int = 1,
@@ -155,6 +156,10 @@ async def list_hostels(
     """
     **List public hostels with filters.**
     """
+    if available_to and not available_from:
+        raise HTTPException(status_code=400, detail="available_from is required with available_to.")
+    if available_to and available_from and available_to <= available_from:
+        raise HTTPException(status_code=400, detail="available_to must be after available_from.")
     try:
         result = await HostelService(db).list_public_hostels(
             city=city,
@@ -163,6 +168,7 @@ async def list_hostels(
             min_price=min_price,
             max_price=max_price,
             available_from=available_from,
+            available_to=available_to,
             is_featured=is_featured,
             sort=sort,
             page=page,
@@ -279,6 +285,8 @@ async def get_hostel_rooms(
     hostel_id: str,
     db: DBSession,
     booking_mode: str | None = None,
+    check_in_date: DateType | None = None,
+    check_out_date: DateType | None = None,
 ):
     """List rooms for a hostel with live availability.
 
@@ -286,7 +294,13 @@ async def get_hostel_rooms(
     - `booking_mode=daily`  — only returns rooms with `daily_rent > 0`
     - `booking_mode=monthly` — only returns rooms with `monthly_rent > 0` (default)
     """
-    rooms = await HostelService(db).list_hostel_rooms(hostel_id)
+    if bool(check_in_date) != bool(check_out_date):
+        raise HTTPException(status_code=400, detail="Both check_in_date and check_out_date are required.")
+    if check_in_date and check_out_date and check_out_date <= check_in_date:
+        raise HTTPException(status_code=400, detail="check_out_date must be after check_in_date.")
+    rooms = await HostelService(db).list_hostel_rooms(
+        hostel_id, start_date=check_in_date, end_date=check_out_date
+    )
 
     # Filter out rooms that have no rate configured for the requested mode
     if booking_mode:

@@ -61,6 +61,8 @@ class RoomResponse(TimestampedResponse):
     dimensions: str | None = None
     is_active: bool
     available_beds: int = 0  # populated by service layer
+    is_available: bool = False
+    availability_status: str = "no_room_available"
 
 
 class BedResponse(TimestampedResponse):

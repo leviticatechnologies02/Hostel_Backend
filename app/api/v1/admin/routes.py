@@ -31,10 +31,12 @@ from app.schemas.booking import (
     BookingApprovalRequest,
     BookingRejectionRequest,
     BookingCancellationRequest,
+    CheckoutRequestResponse,
+    CheckoutRequestReview,
 )
 from pydantic import BaseModel, Field
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date as DateType, datetime
 from app.core.security import verify_password, hash_password
 from app.repositories.user_repository import UserRepository
 from app.schemas.student import CompleteStudentDetailResponse
@@ -284,9 +286,21 @@ async def get_booking_document(
 
 
 @router.get("/hostels/{hostel_id}/rooms", response_model=list[RoomResponse])
-async def list_rooms(hostel_id: str, db: DBSession, current_user: AdminUser):
+async def list_rooms(
+    hostel_id: str,
+    db: DBSession,
+    current_user: AdminUser,
+    check_in_date: DateType | None = None,
+    check_out_date: DateType | None = None,
+):
     _check_hostel(current_user, hostel_id)
-    return await AdminService(db).list_rooms(hostel_id)
+    if bool(check_in_date) != bool(check_out_date):
+        raise HTTPException(status_code=400, detail="Both check_in_date and check_out_date are required.")
+    if check_in_date and check_out_date and check_out_date <= check_in_date:
+        raise HTTPException(status_code=400, detail="check_out_date must be after check_in_date.")
+    return await AdminService(db).list_rooms(
+        hostel_id, start_date=check_in_date, end_date=check_out_date
+    )
 
 
 @router.get("/hostels/{hostel_id}/bed-tracking")
@@ -909,6 +923,71 @@ async def check_out_student(booking_id: str, db: DBSession, current_user: AdminU
     booking_hostel_id = await _resolve_booking_hostel_id(db, booking_id)
     _check_hostel(current_user, booking_hostel_id)
     return await BookingService(db).check_out_student(booking_id=booking_id, checked_out_by=current_user.id)
+
+
+@router.get(
+    "/hostels/{hostel_id}/checkout-requests",
+    response_model=list[CheckoutRequestResponse],
+)
+async def list_checkout_requests(
+    hostel_id: str,
+    db: DBSession,
+    current_user: AdminUser,
+    request_status: str | None = Query(default=None, alias="status"),
+):
+    """List checkout requests, optionally filtered by pending/approved/rejected."""
+    _check_hostel(current_user, hostel_id)
+    return await BookingService(db).list_checkout_requests(
+        hostel_id=hostel_id, request_status=request_status
+    )
+
+
+@router.patch(
+    "/checkout-requests/{request_id}/approve",
+    response_model=CheckoutRequestResponse,
+)
+async def approve_checkout_request(
+    request_id: str,
+    payload: CheckoutRequestReview,
+    db: DBSession,
+    current_user: AdminUser,
+):
+    from app.models.booking import CheckoutRequest
+
+    checkout_request = await db.get(CheckoutRequest, request_id)
+    if checkout_request is None:
+        raise HTTPException(status_code=404, detail="Checkout request not found.")
+    _check_hostel(current_user, str(checkout_request.hostel_id))
+    return await BookingService(db).review_checkout_request(
+        request_id=request_id,
+        reviewed_by=current_user.id,
+        approve=True,
+        note=payload.note,
+    )
+
+
+@router.patch(
+    "/checkout-requests/{request_id}/reject",
+    response_model=CheckoutRequestResponse,
+)
+async def reject_checkout_request(
+    request_id: str,
+    payload: CheckoutRequestReview,
+    db: DBSession,
+    current_user: AdminUser,
+):
+    from app.models.booking import CheckoutRequest
+
+    checkout_request = await db.get(CheckoutRequest, request_id)
+    if checkout_request is None:
+        raise HTTPException(status_code=404, detail="Checkout request not found.")
+    _check_hostel(current_user, str(checkout_request.hostel_id))
+    return await BookingService(db).review_checkout_request(
+        request_id=request_id,
+        reviewed_by=current_user.id,
+        approve=False,
+        note=payload.note,
+    )
 
 
 @router.get("/students/{student_id}/payments", response_model=list[PaymentResponse])

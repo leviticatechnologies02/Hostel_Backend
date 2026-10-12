@@ -3,14 +3,22 @@ Booking service — transaction-safe booking lifecycle management.
 All state transitions commit atomically. BedStay is the source of truth for occupancy.
 """
 import asyncio
-from datetime import date
+from datetime import UTC, date, datetime
 import uuid 
 from sqlalchemy import select, func
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.booking import BedStay, BedStayStatus, Booking, BookingMode, BookingStatus
+from app.models.booking import (
+    BedStay,
+    BedStayStatus,
+    Booking,
+    BookingMode,
+    BookingStatus,
+    CheckoutRequest,
+    CheckoutRequestStatus,
+)
 from app.models.booking import WaitlistEntry, WaitlistStatus
 from app.repositories.booking_repository import BookingRepository
 from app.schemas.booking import BookingCreateRequest
@@ -24,6 +32,47 @@ class BookingService:
         self.session = session
         self.repository = BookingRepository(session)
 
+    async def _validate_requested_availability(
+        self,
+        *,
+        hostel_id: str,
+        room_id: str,
+        bed_id: str | None,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> None:
+        """Validate room ownership and date-range availability for every booking entry point."""
+        from app.models.room import Bed, BedStatus, Room
+
+        room = await self.session.get(Room, room_id)
+        if room is None or str(room.hostel_id) != str(hostel_id) or not room.is_active:
+            raise HTTPException(status_code=404, detail="Room not found in this hostel.")
+
+        if bed_id:
+            bed = await self.session.get(Bed, bed_id)
+            if bed is None or str(bed.room_id) != str(room_id) or str(bed.hostel_id) != str(hostel_id):
+                raise HTTPException(status_code=404, detail="Bed not found in the selected room.")
+            if bed.status == BedStatus.MAINTENANCE or not await self.repository.is_bed_available(
+                bed_id=bed_id, start_date=start_date, end_date=end_date
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="No room available for the requested dates.",
+                )
+            return
+
+        available_beds = await self.repository.get_available_beds(
+            hostel_id=hostel_id,
+            room_id=room_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if not available_beds:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No room available for the requested dates.",
+            )
+
     # ──────────────────────────────────────────────────────────────────
     # CREATE
     # ──────────────────────────────────────────────────────────────────
@@ -35,6 +84,14 @@ class BookingService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="check_out_date must be after check_in_date",
             )
+
+        await self._validate_requested_availability(
+            hostel_id=payload.hostel_id,
+            room_id=payload.room_id,
+            bed_id=payload.bed_id,
+            start_date=payload.check_in_date,
+            end_date=payload.check_out_date,
+        )
         
         # ── Subscription validation ───────────────────────────────────
         await self.check_hostel_subscription(
@@ -172,31 +229,13 @@ class BookingService:
             print(f"Subscription validation error: {e}")
             # Continue anyway for testing
         
-        # Validate bed availability if bed_id is provided
-        if payload.bed_id:
-            is_available = await self.repository.is_bed_available(
-                bed_id=payload.bed_id,
-                start_date=payload.check_in_date,
-                end_date=payload.check_out_date,
-            )
-            if not is_available:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Selected bed is not available for requested dates.",
-                )
-        else:
-            # Check if any beds are available in the room
-            available_beds = await self.repository.get_available_beds(
-                hostel_id=payload.hostel_id,
-                room_id=payload.room_id,
-                start_date=payload.check_in_date,
-                end_date=payload.check_out_date,
-            )
-            if not available_beds:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="No beds available for requested room and dates.",
-                )
+        await self._validate_requested_availability(
+            hostel_id=payload.hostel_id,
+            room_id=payload.room_id,
+            bed_id=payload.bed_id,
+            start_date=payload.check_in_date,
+            end_date=payload.check_out_date,
+        )
 
         # Calculate nights/months
         mode = BookingMode(payload.booking_mode)
@@ -502,7 +541,9 @@ class BookingService:
     # ──────────────────────────────────────────────────────────────────
     # CHECK-OUT — BedStay ACTIVE → COMPLETED → commit
     # ──────────────────────────────────────────────────────────────────
-    async def check_out_student(self, *, booking_id: str, checked_out_by: str) -> Booking:
+    async def check_out_student(
+        self, *, booking_id: str, checked_out_by: str, commit: bool = True
+    ) -> Booking:
         booking = await self.repository.get_by_id(booking_id)
         if booking is None:
             raise HTTPException(status_code=404, detail="Booking not found.")
@@ -525,12 +566,37 @@ class BookingService:
         bed_stay = result.scalar_one_or_none()
         if bed_stay:
             bed_stay.status = BedStayStatus.COMPLETED
+            bed_stay.end_date = datetime.now(UTC)
 
         # Update Bed.status in DB
         from app.models.room import Bed, BedStatus
         bed = await self.session.get(Bed, booking.bed_id)
         if bed:
             bed.status = BedStatus.AVAILABLE
+
+        # Tenant bookings also have a Student row; keep both sources in sync.
+        from app.models.student import Student, StudentStatus
+        student_result = await self.session.execute(
+            select(Student).where(Student.booking_id == booking_id)
+        )
+        student = student_result.scalar_one_or_none()
+        if student:
+            student.status = StudentStatus.CHECKED_OUT
+            student.check_out_date = date.today()
+
+        # A direct admin checkout also resolves any still-pending user request.
+        request_result = await self.session.execute(
+            select(CheckoutRequest).where(
+                CheckoutRequest.booking_id == booking_id,
+                CheckoutRequest.status == CheckoutRequestStatus.PENDING.value,
+            )
+        )
+        checkout_request = request_result.scalar_one_or_none()
+        if checkout_request:
+            checkout_request.status = CheckoutRequestStatus.APPROVED.value
+            checkout_request.reviewed_by = checked_out_by
+            checkout_request.admin_note = "Checked out directly by admin."
+            checkout_request.reviewed_at = datetime.now(UTC)
 
         await self.repository.add_status_history(
             booking_id=str(booking.id),
@@ -539,9 +605,112 @@ class BookingService:
             changed_by=checked_out_by,
             note="Student checked out.",
         )
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         await self.session.refresh(booking)
         return booking
+
+    async def request_checkout(
+        self, *, booking_id: str, requested_by: str, reason: str | None = None
+    ) -> CheckoutRequest:
+        booking = await self.repository.get_by_id(booking_id)
+        if booking is None:
+            raise HTTPException(status_code=404, detail="Booking not found.")
+        if str(booking.visitor_id) != str(requested_by):
+            raise HTTPException(status_code=403, detail="Not your booking.")
+        if booking.status != BookingStatus.CHECKED_IN:
+            raise HTTPException(
+                status_code=400,
+                detail="Checkout can only be requested for a checked-in booking.",
+            )
+
+        result = await self.session.execute(
+            select(CheckoutRequest).where(CheckoutRequest.booking_id == booking_id)
+        )
+        checkout_request = result.scalar_one_or_none()
+        if checkout_request and checkout_request.status == CheckoutRequestStatus.PENDING.value:
+            raise HTTPException(status_code=409, detail="A checkout request is already pending.")
+
+        if checkout_request is None:
+            checkout_request = CheckoutRequest(
+                booking_id=booking_id,
+                hostel_id=str(booking.hostel_id),
+                requested_by=requested_by,
+            )
+            self.session.add(checkout_request)
+
+        checkout_request.status = CheckoutRequestStatus.PENDING.value
+        checkout_request.reason = reason
+        checkout_request.reviewed_by = None
+        checkout_request.admin_note = None
+        checkout_request.reviewed_at = None
+        await self.session.commit()
+        await self.session.refresh(checkout_request)
+        return checkout_request
+
+    async def list_checkout_requests(
+        self, *, hostel_id: str, request_status: str | None = None
+    ) -> list[CheckoutRequest]:
+        query = select(CheckoutRequest).where(CheckoutRequest.hostel_id == hostel_id)
+        if request_status:
+            try:
+                normalized = CheckoutRequestStatus(request_status.lower()).value
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid checkout request status.")
+            query = query.where(CheckoutRequest.status == normalized)
+        result = await self.session.execute(query.order_by(CheckoutRequest.created_at.desc()))
+        return list(result.scalars().all())
+
+    async def get_checkout_request(
+        self, *, booking_id: str, requested_by: str
+    ) -> CheckoutRequest:
+        booking = await self.repository.get_by_id(booking_id)
+        if booking is None:
+            raise HTTPException(status_code=404, detail="Booking not found.")
+        if str(booking.visitor_id) != str(requested_by):
+            raise HTTPException(status_code=403, detail="Not your booking.")
+        result = await self.session.execute(
+            select(CheckoutRequest).where(CheckoutRequest.booking_id == booking_id)
+        )
+        checkout_request = result.scalar_one_or_none()
+        if checkout_request is None:
+            raise HTTPException(status_code=404, detail="Checkout request not found.")
+        return checkout_request
+
+    async def review_checkout_request(
+        self,
+        *,
+        request_id: str,
+        reviewed_by: str,
+        approve: bool,
+        note: str | None = None,
+    ) -> CheckoutRequest:
+        checkout_request = await self.session.get(CheckoutRequest, request_id)
+        if checkout_request is None:
+            raise HTTPException(status_code=404, detail="Checkout request not found.")
+        if checkout_request.status != CheckoutRequestStatus.PENDING.value:
+            raise HTTPException(status_code=400, detail="Checkout request has already been reviewed.")
+
+        if approve:
+            await self.check_out_student(
+                booking_id=str(checkout_request.booking_id),
+                checked_out_by=reviewed_by,
+                commit=False,
+            )
+            # check_out_student resolves the request in the same transaction.
+            await self.session.refresh(checkout_request)
+            checkout_request.admin_note = note or "Checkout request approved by admin."
+        else:
+            checkout_request.status = CheckoutRequestStatus.REJECTED.value
+            checkout_request.reviewed_by = reviewed_by
+            checkout_request.admin_note = note
+            checkout_request.reviewed_at = datetime.now(UTC)
+
+        await self.session.commit()
+        await self.session.refresh(checkout_request)
+        return checkout_request
 
     # ──────────────────────────────────────────────────────────────────
     # INTERNAL — release BedStay (no commit — caller commits)

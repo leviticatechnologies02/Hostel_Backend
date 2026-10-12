@@ -1,6 +1,6 @@
 # Replace the full file: app/services/hostel_service.py
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,8 @@ def _build_hostel_dict(
         "starting_daily_price": starting_daily_price,
         "starting_monthly_price": starting_monthly_price,
         "available_beds": available_beds,
+        "is_available": available_beds > 0,
+        "availability_status": "available" if available_beds > 0 else "no_room_available",
         "created_at": hostel.created_at,
         "updated_at": hostel.updated_at,
     }
@@ -87,9 +89,14 @@ class HostelService:
             result[hid] = (avg, count, monthly_price, daily_price)
         return result
 
-    async def _bulk_available_beds(self, hostel_ids: list[str]) -> dict[str, int]:
-        today = date.today()
-        tomorrow = today.replace(day=today.day)  # keep same date object reference style
+    async def _bulk_available_beds(
+        self,
+        hostel_ids: list[str],
+        start_date: date | datetime | None = None,
+        end_date: date | datetime | None = None,
+    ) -> dict[str, int]:
+        start_date = start_date or date.today()
+        end_date = end_date or (start_date + timedelta(days=1))
         result = await self.session.execute(
             select(Room.id, Room.hostel_id)
             .where(Room.hostel_id.in_(hostel_ids), Room.is_active.is_(True))
@@ -98,8 +105,8 @@ class HostelService:
         for room_id, hostel_id in result.all():
             available = await self.room_repository.get_available_bed_count(
                 str(room_id),
-                today,
-                today + __import__("datetime").timedelta(days=1),
+                start_date,
+                end_date,
             )
             hid = str(hostel_id)
             available_by_hostel[hid] = available_by_hostel.get(hid, 0) + int(available or 0)
@@ -140,6 +147,7 @@ class HostelService:
         min_price: float | None = None,
         max_price: float | None = None,
         available_from: date | None = None,
+        available_to: date | None = None,
         sort: str | None = None,
         is_featured: bool | None = None,
         page: int = 1,
@@ -188,11 +196,20 @@ class HostelService:
                     "per_page": page_size,
                 }
             
-            # Build response with minimal data
+            hostel_ids = [str(hostel.id) for hostel in hostels]
+            stats = await self._bulk_stats(hostel_ids)
+            range_start = available_from or date.today()
+            range_end = available_to or (range_start + timedelta(days=1))
+            availability = await self._bulk_available_beds(hostel_ids, range_start, range_end)
+
             items = []
             for hostel in hostels:
+                hid = str(hostel.id)
+                avg_rating, review_count, monthly_price, daily_price = stats.get(
+                    hid, (0.0, 0, 0.0, 0.0)
+                )
                 items.append({
-                    "id": str(hostel.id),
+                    "id": hid,
                     "name": hostel.name,
                     "slug": hostel.slug,
                     "description": hostel.description[:200] if hostel.description else "",
@@ -202,12 +219,16 @@ class HostelService:
                     "status": hostel.status.value if hasattr(hostel.status, "value") else str(hostel.status),
                     "is_public": hostel.is_public,
                     "is_featured": hostel.is_featured,
-                    "rating": 0.0,
-                    "total_reviews": 0,
-                    "starting_price": 0.0,
-                    "starting_daily_price": 0.0,
-                    "starting_monthly_price": 0.0,
-                    "available_beds": 0,
+                    "rating": round(avg_rating, 1),
+                    "total_reviews": review_count,
+                    "starting_price": monthly_price,
+                    "starting_daily_price": daily_price,
+                    "starting_monthly_price": monthly_price,
+                    "available_beds": availability.get(hid, 0),
+                    "is_available": availability.get(hid, 0) > 0,
+                    "availability_status": (
+                        "available" if availability.get(hid, 0) > 0 else "no_room_available"
+                    ),
                     "images": [
                         {
                             "id": str(img.id),
@@ -307,14 +328,19 @@ class HostelService:
             for r in reviews
         ]
 
-    async def list_hostel_rooms(self, hostel_id: str) -> list[dict]:
+    async def list_hostel_rooms(
+        self,
+        hostel_id: str,
+        start_date: date | datetime | None = None,
+        end_date: date | datetime | None = None,
+    ) -> list[dict]:
         rooms = await self.room_repository.list_by_hostel(hostel_id)
-        today = date.today()
-        tomorrow = today + __import__("datetime").timedelta(days=1)
+        start_date = start_date or date.today()
+        end_date = end_date or (start_date + timedelta(days=1))
         result = []
         for room in rooms:
             available = await self.room_repository.get_available_bed_count(
-                str(room.id), today, tomorrow
+                str(room.id), start_date, end_date
             )
             d = {
                 "id": str(room.id),
@@ -330,6 +356,8 @@ class HostelService:
                 "dimensions": room.dimensions,
                 "is_active": room.is_active,
                 "available_beds": available,
+                "is_available": available > 0,
+                "availability_status": "available" if available > 0 else "no_room_available",
                 "created_at": room.created_at,
                 "updated_at": room.updated_at,
             }

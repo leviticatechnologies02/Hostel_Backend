@@ -12,6 +12,8 @@ from app.schemas.booking import (
     BookingInitiateResponse,
     BookingResponse,
     BookingStatusHistoryResponse,
+    CheckoutRequestCreate,
+    CheckoutRequestResponse,
     WaitlistEntryResponse,
     WaitlistJoinRequest,
 )
@@ -139,6 +141,40 @@ async def cancel_booking(
         booking_id=booking_id,
         cancelled_by=current_user.id,
         reason=payload.reason,
+    )
+
+
+@router.post(
+    "/{booking_id}/checkout-request",
+    response_model=CheckoutRequestResponse,
+    status_code=201,
+)
+async def request_checkout(
+    booking_id: str,
+    payload: CheckoutRequestCreate,
+    db: DBSession,
+    current_user: VisitorUser,
+):
+    """Request checkout. An admin must approve it before the bed is released."""
+    return await BookingService(db).request_checkout(
+        booking_id=booking_id,
+        requested_by=current_user.id,
+        reason=payload.reason,
+    )
+
+
+@router.get(
+    "/{booking_id}/checkout-request",
+    response_model=CheckoutRequestResponse,
+)
+async def get_checkout_request(
+    booking_id: str,
+    db: DBSession,
+    current_user: VisitorUser,
+):
+    """Get the current user's checkout request and its admin decision."""
+    return await BookingService(db).get_checkout_request(
+        booking_id=booking_id, requested_by=current_user.id
     )
 
 

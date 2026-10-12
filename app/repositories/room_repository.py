@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.booking import BedStay, BedStayStatus
@@ -24,7 +24,7 @@ class RoomRepository:
         return result.scalar_one_or_none()
 
     async def get_available_bed_count(
-        self, room_id: str, start_date: date, end_date: date
+        self, room_id: str, start_date: date | datetime, end_date: date | datetime
     ) -> int:
         total_result = await self.session.execute(
             select(func.count())
@@ -36,6 +36,13 @@ class RoomRepository:
         )
         total = int(total_result.scalar_one() or 0)
 
+        effective_end_date = case(
+            (
+                BedStay.status == BedStayStatus.ACTIVE,
+                func.greatest(BedStay.end_date, func.now()),
+            ),
+            else_=BedStay.end_date,
+        )
         occupied_result = await self.session.execute(
             select(func.count(func.distinct(BedStay.bed_id)))
             .select_from(BedStay)
@@ -44,7 +51,7 @@ class RoomRepository:
                 Bed.room_id == room_id,
                 BedStay.status.in_([BedStayStatus.RESERVED, BedStayStatus.ACTIVE]),
                 BedStay.start_date < end_date,
-                BedStay.end_date > start_date,
+                effective_end_date > start_date,
             )
         )
         occupied = int(occupied_result.scalar_one() or 0)

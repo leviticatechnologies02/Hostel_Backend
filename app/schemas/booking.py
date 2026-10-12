@@ -145,6 +145,25 @@ class BookingCancellationRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class CheckoutRequestCreate(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=1000)
+
+
+class CheckoutRequestReview(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+class CheckoutRequestResponse(TimestampedResponse):
+    booking_id: str
+    hostel_id: str
+    requested_by: str
+    status: str
+    reason: str | None = None
+    reviewed_by: str | None = None
+    admin_note: str | None = None
+    reviewed_at: datetime | None = None
+
+
 class BookingStatusHistoryResponse(TimestampedResponse):
     booking_id: str
     old_status: str | None

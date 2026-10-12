@@ -4,7 +4,7 @@ import enum
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -47,6 +47,12 @@ class WaitlistStatus(str, enum.Enum):
     NOTIFIED = "notified"
     CONVERTED = "converted"
     CANCELLED = "cancelled"
+
+
+class CheckoutRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class Booking(BaseModel):
@@ -125,6 +131,32 @@ class BookingStatusHistory(BaseModel):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     booking: Mapped[Booking] = relationship("Booking", back_populates="status_history")
+
+
+class CheckoutRequest(BaseModel):
+    """A user-initiated checkout that must be reviewed by a hostel admin."""
+
+    __tablename__ = "checkout_requests"
+    __table_args__ = (
+        UniqueConstraint("booking_id", name="uq_checkout_request_booking"),
+    )
+
+    booking_id: Mapped[str] = mapped_column(
+        ForeignKey("bookings.id", ondelete="CASCADE"), index=True
+    )
+    hostel_id: Mapped[str] = mapped_column(
+        ForeignKey("hostels.id", ondelete="CASCADE"), index=True
+    )
+    requested_by: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default=CheckoutRequestStatus.PENDING.value, index=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    booking: Mapped[Booking] = relationship("Booking")
 
 
 class BedStay(BaseModel):
