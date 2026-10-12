@@ -4,6 +4,7 @@ All state transitions commit atomically. BedStay is the source of truth for occu
 """
 import asyncio
 from datetime import UTC, date, datetime
+from math import ceil
 import uuid 
 from sqlalchemy import select, func
 
@@ -40,7 +41,7 @@ class BookingService:
         bed_id: str | None,
         start_date: datetime,
         end_date: datetime,
-    ) -> None:
+    ):
         """Validate room ownership and date-range availability for every booking entry point."""
         from app.models.room import Bed, BedStatus, Room
 
@@ -59,7 +60,7 @@ class BookingService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail="No room available for the requested dates.",
                 )
-            return
+            return room
 
         available_beds = await self.repository.get_available_beds(
             hostel_id=hostel_id,
@@ -72,6 +73,47 @@ class BookingService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="No room available for the requested dates.",
             )
+        return room
+
+    @staticmethod
+    def _apply_booking_pricing(
+        *, payload, room, mode: BookingMode, total_hours: int | None,
+        total_nights: int | None, total_months: int | None
+    ) -> None:
+        """Apply authoritative room pricing and the security-deposit policy."""
+        if mode == BookingMode.HOURLY:
+            rate = float(room.hourly_rent or 0)
+            units = total_hours or 1
+            rate_label = "hourly"
+            security_deposit = 0.0
+        elif mode == BookingMode.DAILY:
+            rate = float(room.daily_rent or 0)
+            units = total_nights or 1
+            rate_label = "daily"
+            security_deposit = (
+                float(room.security_deposit or 0) if units >= 10 else 0.0
+            )
+        else:
+            rate = float(room.monthly_rent or 0)
+            units = total_months or 1
+            rate_label = "monthly"
+            security_deposit = float(room.security_deposit or 0)
+
+        if rate <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"This room does not have a {rate_label} rate configured.",
+            )
+
+        payload.base_rent_amount = round(rate * units, 2)
+        payload.security_deposit = round(security_deposit, 2)
+        payload.grand_total = round(
+            payload.base_rent_amount + payload.security_deposit, 2
+        )
+
+        # Short stays without a deposit must be paid completely on the billing page.
+        if payload.security_deposit == 0:
+            payload.booking_advance = payload.grand_total
 
     # ──────────────────────────────────────────────────────────────────
     # CREATE
@@ -85,7 +127,7 @@ class BookingService:
                 detail="check_out_date must be after check_in_date",
             )
 
-        await self._validate_requested_availability(
+        room = await self._validate_requested_availability(
             hostel_id=payload.hostel_id,
             room_id=payload.room_id,
             bed_id=payload.bed_id,
@@ -125,31 +167,7 @@ class BookingService:
 
         if mode == BookingMode.HOURLY:
             diff = payload.check_out_date - payload.check_in_date
-            total_hours = max(1, int(diff.total_seconds() / 3600))
-
-            # ── Hourly-mode backend validations ───────────────────────
-            # Fetch room from DB to validate hourly_rent and recalculate price
-            from app.models.room import Room
-            room_res = await self.session.execute(
-                select(Room).where(Room.id == payload.room_id)
-            )
-            room = room_res.scalar_one_or_none()
-            if not room:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Room not found.",
-                )
-            # Block ₹0/hour bookings — admin must set hourly_rent first
-            if float(room.hourly_rent or 0) <= 0:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="This room does not have an hourly rate configured. Please contact the hostel admin.",
-                )
-            # Recalculate server-side to prevent frontend price tampering
-            server_base = float(room.hourly_rent) * total_hours
-            server_deposit = float(room.security_deposit or 0)
-            payload.base_rent_amount = server_base
-            payload.security_deposit = server_deposit
+            total_hours = max(1, ceil(diff.total_seconds() / 3600))
 
         elif mode == BookingMode.DAILY:
             total_nights = max(1, (payload.check_out_date - payload.check_in_date).days)
@@ -160,12 +178,14 @@ class BookingService:
                 total_months -= 1
             total_months = max(1, total_months)
 
-        grand_total = payload.grand_total or (
-            (payload.base_rent_amount or 0) + (payload.security_deposit or 0)
+        self._apply_booking_pricing(
+            payload=payload,
+            room=room,
+            mode=mode,
+            total_hours=total_hours,
+            total_nights=total_nights,
+            total_months=total_months,
         )
-        # For hourly, always use the server-calculated total (ignore frontend value)
-        if mode == BookingMode.HOURLY:
-            grand_total = (payload.base_rent_amount or 0) + (payload.security_deposit or 0)
 
         booking = Booking(
             booking_number=booking_number,
@@ -183,7 +203,7 @@ class BookingService:
             base_rent_amount=payload.base_rent_amount or 0,
             security_deposit=payload.security_deposit or 0,
             booking_advance=payload.booking_advance or 0,
-            grand_total=grand_total,
+            grand_total=payload.grand_total,
             full_name=payload.full_name,
             date_of_birth=payload.date_of_birth,
             gender=payload.gender,
@@ -229,7 +249,7 @@ class BookingService:
             print(f"Subscription validation error: {e}")
             # Continue anyway for testing
         
-        await self._validate_requested_availability(
+        room = await self._validate_requested_availability(
             hostel_id=payload.hostel_id,
             room_id=payload.room_id,
             bed_id=payload.bed_id,
@@ -245,7 +265,7 @@ class BookingService:
         
         if mode == BookingMode.HOURLY:
             diff = payload.check_out_date - payload.check_in_date
-            total_hours = max(1, int(diff.total_seconds() / 3600))
+            total_hours = max(1, ceil(diff.total_seconds() / 3600))
         elif mode == BookingMode.DAILY:
             total_nights = max(1, (payload.check_out_date - payload.check_in_date).days)
         else:
@@ -254,6 +274,15 @@ class BookingService:
             if e.day < s.day:
                 total_months -= 1
             total_months = max(1, total_months) if total_months else 1
+
+        self._apply_booking_pricing(
+            payload=payload,
+            room=room,
+            mode=mode,
+            total_hours=total_hours,
+            total_nights=total_nights,
+            total_months=total_months,
+        )
 
         # Create booking number
         booking_number = f"SE-{uuid.uuid4().hex[:10].upper()}"

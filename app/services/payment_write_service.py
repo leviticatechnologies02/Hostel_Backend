@@ -67,10 +67,27 @@ class PaymentWriteService:
             key_secret=hostel_keys["key_secret"]
         )
 
+        # When no security deposit applies, short-stay billing is full payment.
+        # Do not trust a smaller client-supplied booking_advance in that case.
+        payment_amount = float(payload.booking_advance)
+        if float(booking.security_deposit or 0) == 0:
+            payment_amount = float(booking.grand_total)
+
+        if payment_amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment amount must be greater than zero.",
+            )
+        if payment_amount > float(booking.grand_total):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment amount cannot exceed the booking total.",
+            )
+
         # Create Razorpay order
         try:
             order = razorpay_client.create_order(
-                amount=payload.booking_advance,
+                amount=payment_amount,
                 receipt=str(booking.booking_number),
                 notes={"booking_id": str(booking.id), "visitor_id": actor_id},
             )
@@ -84,7 +101,7 @@ class PaymentWriteService:
         payment = Payment(
             hostel_id=str(booking.hostel_id),
             booking_id=str(booking.id),
-            amount=payload.booking_advance,
+            amount=payment_amount,
             payment_type="booking_advance",
             payment_method=payload.payment_method,
             gateway_order_id=order["id"],

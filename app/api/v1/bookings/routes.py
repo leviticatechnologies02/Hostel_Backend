@@ -47,6 +47,8 @@ async def initiate_booking(payload: BookingInitiateRequest, db: DBSession, curre
             "security_deposit": float(booking.security_deposit),
             "booking_advance": float(booking.booking_advance),
             "grand_total": float(booking.grand_total),
+            "payment_due_now": float(booking.booking_advance),
+            "requires_full_payment": float(booking.security_deposit) == 0,
         },
     )
 
