@@ -58,7 +58,14 @@ class StudentReadRepository:
 
     async def list_bookings_by_visitor(self, user_id: str) -> list[Booking]:
         result = await self.session.execute(
-            select(Booking).where(Booking.visitor_id == user_id).order_by(Booking.created_at.desc())
+            select(Booking)
+            .options(
+                selectinload(Booking.hostel),
+                selectinload(Booking.room),
+                selectinload(Booking.bed),
+            )
+            .where(Booking.visitor_id == user_id)
+            .order_by(Booking.created_at.desc())
         )
         return list(result.scalars().all())
 

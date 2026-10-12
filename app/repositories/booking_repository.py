@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.booking import (
     BedStay,
@@ -50,7 +51,14 @@ class BookingRepository:
 
     async def list_by_hostel(self, hostel_id: str) -> list[Booking]:
         result = await self.session.execute(
-            select(Booking).where(Booking.hostel_id == hostel_id).order_by(Booking.created_at.desc())
+            select(Booking)
+            .options(
+                selectinload(Booking.hostel),
+                selectinload(Booking.room),
+                selectinload(Booking.bed),
+            )
+            .where(Booking.hostel_id == hostel_id)
+            .order_by(Booking.created_at.desc())
         )
         return list(result.scalars().all())
 

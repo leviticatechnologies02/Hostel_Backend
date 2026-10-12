@@ -5,6 +5,7 @@ from sqlalchemy import select
 from app.models.hostel import Hostel
 from app.models.room import Room, Bed
 from app.models.booking import Booking
+from app.services.booking_service import BookingService
 
 class StudentReadService:
     def __init__(self, session: AsyncSession) -> None:
@@ -79,7 +80,8 @@ class StudentReadService:
         return await self.repository.list_attendance(str(student.id))
 
     async def list_bookings(self, *, user_id: str):
-        return await self.repository.list_bookings_by_visitor(user_id)
+        bookings = await self.repository.list_bookings_by_visitor(user_id)
+        return [BookingService.booking_list_item(booking) for booking in bookings]
 
     async def list_notices(self, *, user_id: str):
         student = await self.repository.get_student_by_user(user_id)

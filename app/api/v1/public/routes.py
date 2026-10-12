@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile
 from fastapi.responses import HTMLResponse
 
 from app.dependencies import DBSession, CurrentUser, require_roles
-from app.schemas.booking import BookingCreateRequest, BookingResponse
+from app.schemas.booking import BookingCreateRequest, BookingListResponse, BookingResponse
 from app.schemas.hostel import (
     HostelDetailResponse,
     InquiryRequest,
@@ -485,7 +485,7 @@ async def create_booking(
     return await BookingService(db).create_booking(visitor_id=current_user.id, payload=payload)
 
 
-@router.get("/bookings/me", response_model=list[BookingResponse])
+@router.get("/bookings/me", response_model=list[BookingListResponse])
 async def my_bookings(db: DBSession, current_user: VisitorUser):
     """List all bookings for the authenticated visitor."""
     from app.services.visitor_service import VisitorService

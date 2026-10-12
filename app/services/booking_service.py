@@ -22,7 +22,7 @@ from app.models.booking import (
 )
 from app.models.booking import WaitlistEntry, WaitlistStatus
 from app.repositories.booking_repository import BookingRepository
-from app.schemas.booking import BookingCreateRequest
+from app.schemas.booking import BookingCreateRequest, BookingListResponse
 from app.schemas.booking import BookingInitiateRequest, BookingApplicantPatchRequest, WaitlistJoinRequest
 from app.services.subscription_validator import SubscriptionValidator
 
@@ -32,6 +32,40 @@ class BookingService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.repository = BookingRepository(session)
+
+    @staticmethod
+    def booking_list_item(booking: Booking) -> dict:
+        """Flatten related display data required by booking cards."""
+        item = BookingListResponse.model_validate(booking).model_dump()
+        hostel = booking.hostel
+        room = booking.room
+        bed = booking.bed
+
+        address_parts = []
+        if hostel:
+            address_parts = [
+                hostel.address_line1,
+                hostel.address_line2,
+                hostel.city,
+                hostel.state,
+                hostel.pincode,
+            ]
+            item.update(
+                hostel_name=hostel.name,
+                hostel_address=", ".join(str(part) for part in address_parts if part),
+                hostel_city=hostel.city,
+                hostel_state=hostel.state,
+                hostel_pincode=hostel.pincode,
+            )
+        if room:
+            item.update(
+                room_number=room.room_number,
+                room_type=room.room_type.value if hasattr(room.room_type, "value") else str(room.room_type),
+                room_floor=room.floor,
+            )
+        if bed:
+            item["bed_number"] = bed.bed_number
+        return item
 
     async def _validate_requested_availability(
         self,
@@ -358,7 +392,8 @@ class BookingService:
     # LIST
     # ──────────────────────────────────────────────────────────────────
     async def list_admin_bookings(self, *, hostel_id: str) -> list[Booking]:
-        return await self.repository.list_by_hostel(hostel_id)
+        bookings = await self.repository.list_by_hostel(hostel_id)
+        return [self.booking_list_item(booking) for booking in bookings]
 
     # ──────────────────────────────────────────────────────────────────
     # APPROVE — overlap check → BedStay RESERVED → commit

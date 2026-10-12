@@ -88,6 +88,20 @@ class BookingResponse(TimestampedResponse):
     approved_by: str | None = None
 
 
+class BookingListResponse(BookingResponse):
+    """Booking card data with its hostel, room and bed display details."""
+
+    hostel_name: str | None = None
+    hostel_address: str | None = None
+    hostel_city: str | None = None
+    hostel_state: str | None = None
+    hostel_pincode: str | None = None
+    room_number: str | None = None
+    room_type: str | None = None
+    room_floor: int | None = None
+    bed_number: str | None = None
+
+
 class BookingInitiateRequest(BaseModel):
     hostel_id: str
     room_id: str

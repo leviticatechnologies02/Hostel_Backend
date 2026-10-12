@@ -11,7 +11,7 @@ from app.models.booking import Booking, BookingStatus
 from app.models.hostel import Hostel
 from app.models.operations import Review, Notice, NoticeRead
 from app.models.user import User
-from app.schemas.booking import BookingResponse, BookingCancellationRequest, WaitlistJoinRequest
+from app.schemas.booking import BookingListResponse, BookingResponse, BookingCancellationRequest, WaitlistJoinRequest
 from app.schemas.base import APIModel, TimestampedResponse
 from app.schemas.notice import NoticeResponse
 from app.schemas.mess_menu import MessMenuResponse
@@ -344,13 +344,11 @@ async def mark_visitor_notice_read(
 
 # ==================== BOOKING ROUTES ====================
 
-@router.get("/bookings", response_model=list[BookingResponse])
+@router.get("/bookings", response_model=list[BookingListResponse])
 async def list_bookings(current_user: VisitorUser, db: DBSession):
     """**List all bookings for the authenticated visitor.**"""
-    result = await db.execute(
-        select(Booking).where(Booking.visitor_id == current_user.id).order_by(Booking.created_at.desc())
-    )
-    return list(result.scalars().all())
+    from app.services.visitor_service import VisitorService
+    return await VisitorService(db).list_bookings(current_user.id)
 
 
 @router.get("/bookings/{booking_id}/status-history")

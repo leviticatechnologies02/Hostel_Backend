@@ -8,7 +8,7 @@ from app.schemas.notice import NoticeResponse, NoticeListResponse
 from app.dependencies import CurrentUser, DBSession, require_roles
 from app.models.operations import Notice, NoticeRead
 from app.schemas.attendance import AttendanceResponse
-from app.schemas.booking import BookingResponse, WaitlistEntryResponse
+from app.schemas.booking import BookingListResponse, BookingResponse, WaitlistEntryResponse
 from app.schemas.complaint import ComplaintCreateRequest, ComplaintResponse
 from app.schemas.mess_menu import MessMenuResponse
 from app.schemas.payment import PaymentResponse
@@ -386,7 +386,7 @@ async def pay_remaining_balance(
     )
 
 
-@router.get("/bookings", response_model=list[BookingResponse])
+@router.get("/bookings", response_model=list[BookingListResponse])
 async def bookings(current_user: StudentUser, db: DBSession):
     """**Student booking history** — all bookings in all statuses."""
     return await StudentReadService(db).list_bookings(user_id=current_user.id)

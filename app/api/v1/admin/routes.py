@@ -28,6 +28,7 @@ from app.schemas.transfer import (
 )
 from app.schemas.booking import (
     BookingResponse,
+    BookingListResponse,
     BookingApprovalRequest,
     BookingRejectionRequest,
     BookingCancellationRequest,
@@ -241,7 +242,7 @@ async def update_hostel(hostel_id: str, payload: HostelUpdateRequest, db: DBSess
     return await AdminService(db).update_hostel(hostel_id, payload)
 
 
-@router.get("/hostels/{hostel_id}/bookings", response_model=list[BookingResponse])
+@router.get("/hostels/{hostel_id}/bookings", response_model=list[BookingListResponse])
 async def list_bookings(hostel_id: str, db: DBSession, current_user: AdminUser):
     """
     **List all bookings for a hostel.**
