@@ -63,5 +63,11 @@ class NoticeListResponse(BaseModel):
     """Paginated notice list response"""
     items: list[NoticeResponse]
     total: int
+    unread_count: int = 0
     page: int
     per_page: int
+
+
+class NoticeUnreadCountResponse(BaseModel):
+    """Unread notice count used by the student navigation badge."""
+    unread_count: int

@@ -4,7 +4,11 @@ from typing import Annotated
 
 from starlette.responses import Response
 from sqlalchemy import or_, select
-from app.schemas.notice import NoticeResponse, NoticeListResponse  
+from app.schemas.notice import (
+    NoticeListResponse,
+    NoticeResponse,
+    NoticeUnreadCountResponse,
+)
 from app.dependencies import CurrentUser, DBSession, require_roles
 from app.models.operations import Notice, NoticeRead
 from app.schemas.attendance import AttendanceResponse
@@ -503,6 +507,18 @@ async def attendance(current_user: StudentUser, db: DBSession):
 
 # ==================== NOTICE ROUTES ====================
 # CRITICAL: Static routes MUST come BEFORE dynamic {notice_id} routes
+
+@router.get("/notices/unread-count", response_model=NoticeUnreadCountResponse)
+async def get_unread_notice_count(
+    current_user: StudentUser,
+    db: DBSession,
+):
+    """Get the current unread count for the student's notice badge."""
+    unread_count = await NoticeService(db).get_student_unread_count(
+        student_user_id=current_user.id
+    )
+    return {"unread_count": unread_count}
+
 
 @router.get("/notices/read-status", response_model=list[str])
 async def get_read_notice_ids(

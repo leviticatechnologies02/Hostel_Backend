@@ -1,7 +1,7 @@
 # app/services/notice_service.py
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
-from sqlalchemy import select, or_, func, desc
+from sqlalchemy import select, or_, func, desc, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Set
 from app.models.operations import Notice, NoticeRead
@@ -138,7 +138,13 @@ class NoticeService:
         student = result.scalar_one_or_none()
         
         if not student:
-            return {"items": [], "total": 0, "page": page, "per_page": per_page}
+            return {
+                "items": [],
+                "total": 0,
+                "unread_count": 0,
+                "page": page,
+                "per_page": per_page,
+            }
         
         now = datetime.now(timezone.utc)
         
@@ -162,6 +168,12 @@ class NoticeService:
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.session.execute(count_query)
         total = int(total_result.scalar() or 0)
+
+        unread_count = await self._count_visible_unread_notices(
+            student_user_id=student_user_id,
+            hostel_id=str(student.hostel_id),
+            now=now,
+        )
         
         # Get paginated results
         query = query.order_by(desc(Notice.created_at))
@@ -203,9 +215,46 @@ class NoticeService:
         return {
             "items": items,
             "total": total,
+            "unread_count": unread_count,
             "page": page,
             "per_page": per_page,
         }
+
+    async def get_student_unread_count(self, *, student_user_id: str) -> int:
+        """Count active notices visible to a student that they have not read."""
+        result = await self.session.execute(
+            select(Student.hostel_id).where(Student.user_id == student_user_id)
+        )
+        hostel_id = result.scalar_one_or_none()
+        if hostel_id is None:
+            return 0
+
+        return await self._count_visible_unread_notices(
+            student_user_id=student_user_id,
+            hostel_id=str(hostel_id),
+            now=datetime.now(timezone.utc),
+        )
+
+    async def _count_visible_unread_notices(
+        self,
+        *,
+        student_user_id: str,
+        hostel_id: str,
+        now: datetime,
+    ) -> int:
+        read_exists = exists().where(
+            NoticeRead.notice_id == Notice.id,
+            NoticeRead.user_id == student_user_id,
+        )
+        query = select(func.count(Notice.id)).where(
+            or_(Notice.hostel_id == hostel_id, Notice.hostel_id.is_(None)),
+            Notice.is_published.is_(True),
+            or_(Notice.publish_at.is_(None), Notice.publish_at <= now),
+            or_(Notice.expires_at.is_(None), Notice.expires_at > now),
+            ~read_exists,
+        )
+        result = await self.session.execute(query)
+        return int(result.scalar() or 0)
 
 
     # ==================== UPDATE ====================
@@ -311,9 +360,15 @@ class NoticeService:
             )
             self.session.add(notice_read)
             await self.session.commit()
-            return {"notice_id": notice_id, "is_read": True}
-        
-        return {"notice_id": notice_id, "is_read": True}
+
+        unread_count = await self.get_student_unread_count(
+            student_user_id=user_id
+        )
+        return {
+            "notice_id": notice_id,
+            "is_read": True,
+            "unread_count": unread_count,
+        }
     
     async def get_user_read_notices(
         self,
