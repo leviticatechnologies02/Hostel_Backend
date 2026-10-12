@@ -67,6 +67,10 @@ from app.schemas.payment_config import HostelPaymentConfigUpdate, HostelPaymentC
 
 router = APIRouter()
 AdminUser = Annotated[CurrentUser, Depends(require_roles("hostel_admin", "super_admin"))]
+BedTrackingUser = Annotated[
+    CurrentUser,
+    Depends(require_roles("hostel_admin", "supervisor", "super_admin")),
+]
 
 
 class AdminProfileResponse(BaseModel):
@@ -305,7 +309,9 @@ async def list_rooms(
 
 
 @router.get("/hostels/{hostel_id}/bed-tracking")
-async def get_hostel_bed_tracking(hostel_id: str, db: DBSession, current_user: AdminUser):
+async def get_hostel_bed_tracking(
+    hostel_id: str, db: DBSession, current_user: BedTrackingUser
+):
     """**Bed Tracking Matrix** — Single endpoint to power the visual Bed Tracking UI screen.
 
     Returns:
@@ -313,6 +319,7 @@ async def get_hostel_bed_tracking(hostel_id: str, db: DBSession, current_user: A
     - List of rooms with their child beds, status, and active occupant details.
     - For monthly tenants: shows student info.
     - For hourly/daily visitors: shows visitor info from booking.
+    - Supervisors can access data only for hostels assigned to them.
     """
     from sqlalchemy import select
     from app.models.hostel import Hostel
