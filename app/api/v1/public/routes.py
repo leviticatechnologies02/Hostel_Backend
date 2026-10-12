@@ -1,7 +1,7 @@
 # app/api/v1/public/routes.py - COMPLETE FIXED VERSION
 
 from typing import Annotated
-from datetime import date as DateType
+from datetime import date as DateType, datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile
 from fastapi.responses import HTMLResponse
 
@@ -26,6 +26,17 @@ from fastapi import status
 
 router = APIRouter()
 VisitorUser = Annotated[CurrentUser, Depends(require_roles("visitor", "student", "hostel_admin", "supervisor", "super_admin"))]
+
+
+def _parse_room_availability_datetime(value: str, field_name: str) -> datetime:
+    """Accept both YYYY-MM-DD and ISO timestamps used by daily/hourly booking UIs."""
+    try:
+        return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field_name} must be an ISO date or datetime.",
+        )
 
 
 def _serve_html_list(hostels: list, total: int, page: int, per_page: int) -> HTMLResponse:
@@ -285,8 +296,8 @@ async def get_hostel_rooms(
     hostel_id: str,
     db: DBSession,
     booking_mode: str | None = None,
-    check_in_date: DateType | None = None,
-    check_out_date: DateType | None = None,
+    check_in_date: str | None = None,
+    check_out_date: str | None = None,
 ):
     """List rooms for a hostel with live availability.
 
@@ -296,10 +307,15 @@ async def get_hostel_rooms(
     """
     if bool(check_in_date) != bool(check_out_date):
         raise HTTPException(status_code=400, detail="Both check_in_date and check_out_date are required.")
-    if check_in_date and check_out_date and check_out_date <= check_in_date:
-        raise HTTPException(status_code=400, detail="check_out_date must be after check_in_date.")
+    range_start = None
+    range_end = None
+    if check_in_date and check_out_date:
+        range_start = _parse_room_availability_datetime(check_in_date, "check_in_date")
+        range_end = _parse_room_availability_datetime(check_out_date, "check_out_date")
+        if range_end <= range_start:
+            raise HTTPException(status_code=400, detail="check_out_date must be after check_in_date.")
     rooms = await HostelService(db).list_hostel_rooms(
-        hostel_id, start_date=check_in_date, end_date=check_out_date
+        hostel_id, start_date=range_start, end_date=range_end
     )
 
     # Filter out rooms that have no rate configured for the requested mode
