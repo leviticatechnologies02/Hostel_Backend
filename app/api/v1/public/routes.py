@@ -307,9 +307,16 @@ async def get_hostel_rooms(
         mode = booking_mode.lower()
         filtered = []
         for room in rooms:
-            if mode == "hourly" and float(room.hourly_rent or 0) <= 0:
+            # HostelService returns serialized room dictionaries, not ORM Room objects.
+            # Attribute access here caused daily/hourly requests to return HTTP 500.
+            hourly_rent = float(room.get("hourly_rent") or 0)
+            daily_rent = float(room.get("daily_rent") or 0)
+            monthly_rent = float(room.get("monthly_rent") or 0)
+            if mode == "hourly" and hourly_rent <= 0:
                 continue  # Skip ₹0/hour rooms — admin hasn't configured hourly pricing
-            if mode == "daily" and float(room.daily_rent or 0) <= 0:
+            if mode == "daily" and daily_rent <= 0:
+                continue
+            if mode == "monthly" and monthly_rent <= 0:
                 continue
             filtered.append(room)
         return filtered
