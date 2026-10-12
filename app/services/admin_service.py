@@ -24,6 +24,44 @@ from app.services.subscription_validator import SubscriptionValidator
 from app.repositories.room_repository import RoomRepository
 from sqlalchemy import or_, select, update, delete, func
 
+
+ROOM_TYPE_ALIASES: dict[str, RoomType] = {
+    "1-bed": RoomType.SINGLE,
+    "one-bed": RoomType.SINGLE,
+    "2-bed": RoomType.DOUBLE,
+    "two-bed": RoomType.DOUBLE,
+    "3-bed": RoomType.TRIPLE,
+    "three-bed": RoomType.TRIPLE,
+    "quad": RoomType.QUADRUPLE,
+    "4-bed": RoomType.QUADRUPLE,
+    "four-bed": RoomType.QUADRUPLE,
+    "5-bed": RoomType.FIVE_BED,
+    "6-bed": RoomType.SIX_BED,
+    "dorm": RoomType.DORMITORY,
+}
+
+
+def normalize_room_type(value: str) -> RoomType:
+    """Accept canonical room types and common labels used by admin forms."""
+    try:
+        normalized = value.strip().lower().replace("_", "-").replace(" ", "-")
+    except AttributeError:
+        normalized = ""
+
+    try:
+        return RoomType(normalized)
+    except ValueError:
+        room_type = ROOM_TYPE_ALIASES.get(normalized)
+        if room_type is not None:
+            return room_type
+
+    allowed_types = ", ".join(room_type.value for room_type in RoomType)
+    raise HTTPException(
+        status_code=422,
+        detail=f"Invalid room type. Choose one of: {allowed_types}.",
+    )
+
+
 class AdminService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -175,14 +213,7 @@ class AdminService:
         """
         from sqlalchemy.exc import IntegrityError
 
-        try:
-            room_type = RoomType(payload.room_type.strip().lower().replace("_", "-"))
-        except (AttributeError, ValueError):
-            allowed_types = ", ".join(room_type.value for room_type in RoomType)
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid room type. Choose one of: {allowed_types}.",
-            )
+        room_type = normalize_room_type(payload.room_type)
 
         # Create the room
         room = Room(
@@ -234,16 +265,7 @@ class AdminService:
             raise HTTPException(status_code=404, detail="Room not found.")
         update_data = payload.dict(exclude_unset=True)
         if "room_type" in update_data and update_data["room_type"]:
-            try:
-                update_data["room_type"] = RoomType(
-                    update_data["room_type"].strip().lower().replace("_", "-")
-                )
-            except (AttributeError, ValueError):
-                allowed_types = ", ".join(room_type.value for room_type in RoomType)
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Invalid room type. Choose one of: {allowed_types}.",
-                )
+            update_data["room_type"] = normalize_room_type(update_data["room_type"])
         
         for field, value in update_data.items():
             setattr(room, field, value)
