@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:5174", 
         "http://localhost:3000",
+        "http://localhost:50231",
         "https://hma-theta.vercel.app",
         "https://hostelproject-eta.vercel.app",
         "https://www.leviticanestora.com",
